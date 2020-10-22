@@ -1,17 +1,9 @@
 package io.architecture.data.source
 
-import com.nhaarman.mockitokotlin2.any
-import com.nhaarman.mockitokotlin2.argumentCaptor
-import com.nhaarman.mockitokotlin2.mock
-import com.nhaarman.mockitokotlin2.verify
+import com.nhaarman.mockitokotlin2.*
 import io.architecture.data.Task
-import org.hamcrest.CoreMatchers
-import org.hamcrest.CoreMatchers.`is`
-import org.hamcrest.Matcher
 import org.junit.After
-import org.junit.Assert
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertThat
 import org.junit.Before
 import org.junit.Test
 
@@ -22,9 +14,11 @@ class TasksRepositoryTest {
     private val tasksRemoteDataSource: TasksDataSource = mock()
     private val tasksLocalDataSource: TasksDataSource = mock()
     private val loadTasksCallback: TasksDataSource.LoadTasksCallback = mock()
+    private val getTasksCallback: TasksDataSource.GetTaskCallback = mock()
 
-    private val tasksCallbackCaptor =
-        argumentCaptor<TasksDataSource.LoadTasksCallback>()
+    private val tasksCallbackCaptor = argumentCaptor<TasksDataSource.LoadTasksCallback>()
+
+    private val taskCallbackCaptor = argumentCaptor<TasksDataSource.GetTaskCallback>()
 
     @Before
     fun setupTasksRepository() {
@@ -60,31 +54,222 @@ class TasksRepositoryTest {
 
     @Test
     fun saveTask_savesTaskToServiceApi() {
-        val task = Task.create(TASK_TITLE1, "Some task description")
+        val task = Task.create(TASK_TITLE, "Some task description")
         tasksRepository.saveTask(task)
         verify(tasksRemoteDataSource).saveTask(any())
         verify(tasksLocalDataSource).saveTask(any())
         assertEquals(tasksRepository.cachedTasks.size, 1)
     }
 
+    @Test
+    fun completeTask_completesTaskToServiceApiUpdatesCache() {
+        // Given
+        val task = Task.create(TASK_TITLE, "Some task description")
+        tasksRepository.saveTask(task)
 
-    private fun twoTasksLoadCallsToRepository(callback: TasksDataSource.LoadTasksCallback) {
-        tasksRepository.getTasks(callback)
+        // When
+        tasksRepository.completeTask(task)
 
-        verify(tasksLocalDataSource).getTasks(tasksCallbackCaptor.capture())
+        // Then
+        verify(tasksLocalDataSource).completeTask(task)
+        verify(tasksRemoteDataSource).completeTask(task)
+        assertEquals(tasksRepository.cachedTasks.size, 1)
+        assertEquals(tasksRepository.cachedTasks[task.id]?.isActive, false)
+    }
 
-        tasksCallbackCaptor.firstValue.onDataNotAvailable()
+    @Test
+    fun completeTaskId_completesTaskToServiceApiUpdatesCache() {
+        // Given
+        val task = Task.create(TASK_TITLE, "Some task description")
+        tasksRepository.saveTask(task)
+
+        // When
+        tasksRepository.completeTask(task.id)
+
+        // Then
+        verify(tasksLocalDataSource).completeTask(task)
+        verify(tasksRemoteDataSource).completeTask(task)
+        assertEquals(tasksRepository.cachedTasks.size, 1)
+        assertEquals(tasksRepository.cachedTasks[task.id]?.isActive, false)
+    }
+
+    @Test
+    fun activeTask_activesTaskToServiceApiUpdatesCache() {
+        // Given
+        val task = Task.create(TASK_TITLE, "Some task description", true)
+        tasksRepository.saveTask(task)
+
+        // When
+        tasksRepository.activateTask(task)
+
+        // Then
+        verify(tasksLocalDataSource).activateTask(task)
+        verify(tasksRemoteDataSource).activateTask(task)
+        assertEquals(tasksRepository.cachedTasks.size, 1)
+        assertEquals(tasksRepository.cachedTasks[task.id]?.isActive, true)
+    }
+
+    @Test
+    fun activeTaskId_activesTaskToServiceApiUpdatesCache() {
+        // Given
+        val task = Task.create(TASK_TITLE, "Some task description", true)
+        tasksRepository.saveTask(task)
+
+        // When
+        tasksRepository.activateTask(task.id)
+
+        // Then
+        verify(tasksLocalDataSource).activateTask(task)
+        verify(tasksRemoteDataSource).activateTask(task)
+        assertEquals(tasksRepository.cachedTasks.size, 1)
+        assertEquals(tasksRepository.cachedTasks[task.id]?.isActive, true)
+    }
+
+    @Test
+    fun getTask_requestSingleTaskForLocalDataSource() {
+        // When
+        tasksRepository.getTask(TASK_TITLE, getTasksCallback)
+
+        // Then
+        verify(tasksLocalDataSource).getTask(eq(TASK_TITLE), any())
+    }
+
+    @Test
+    fun deleteCompletedTasks_deleteCompletedTasksToServiceAPIUpdatesCache() {
+        // Given
+        val task1 = Task.create(TASK_TITLE, "Some description")
+        val task2 = Task.create(TASK_TITLE2, "Some description2", true)
+        val task3 = Task.create(TASK_TITLE3, "Some description3", true)
+        tasksRepository.saveTask(task1)
+        tasksRepository.saveTask(task2)
+        tasksRepository.saveTask(task3)
+
+        // When
+        tasksRepository.clearCompletedTasks()
+
+        // Then
+        verify(tasksLocalDataSource).clearCompletedTasks()
+        verify(tasksRemoteDataSource).clearCompletedTasks()
+        assertEquals(1, tasksRepository.cachedTasks.size)
+        assertEquals(true, tasksRepository.cachedTasks[task1.id]?.isActive)
+        assertEquals(TASK_TITLE, tasksRepository.cachedTasks[task1.id]?.title)
+    }
+
+    @Test
+    fun deleteAllTasks_deleteTasksToServiceAPIUpdatesCache() {
+        // Given
+        val task1 = Task.create(TASK_TITLE, "Some description")
+        val task2 = Task.create(TASK_TITLE2, "Some description2", true)
+        val task3 = Task.create(TASK_TITLE3, "Some description3", true)
+        tasksRepository.saveTask(task1)
+        tasksRepository.saveTask(task2)
+        tasksRepository.saveTask(task3)
+
+        // When
+        tasksRepository.deleteAllTasks()
+
+        // Then
+        verify(tasksLocalDataSource).deleteAllTasks()
+        verify(tasksRemoteDataSource).deleteAllTasks()
+        assertEquals(0, tasksRepository.cachedTasks.size)
+    }
+
+    @Test
+    fun deleteTask_deleteTaskToServiceAPIRemovedFromCache() {
+        // Given
+        val task1 = Task.create(TASK_TITLE, "Some description")
+        val task2 = Task.create(TASK_TITLE2, "Some description2", true)
+        val task3 = Task.create(TASK_TITLE3, "Some description3", true)
+        tasksRepository.saveTask(task1)
+        tasksRepository.saveTask(task2)
+        tasksRepository.saveTask(task3)
+
+        // When
+        tasksRepository.deleteTask(task2.id)
+
+        // Then
+        verify(tasksLocalDataSource).deleteTask(task2.id)
+        verify(tasksRemoteDataSource).deleteTask(task2.id)
+        assertEquals(false, tasksRepository.cachedTasks.containsKey(task2.id))
+    }
+
+    @Test
+    fun getTasksWithDirtyCache_tasksAreRetrievedFromRemote() {
+        // When
+        tasksRepository.refreshTask()
+        tasksRepository.getTasks(loadTasksCallback)
 
         verify(tasksRemoteDataSource).getTasks(tasksCallbackCaptor.capture())
+        tasksCallbackCaptor.lastValue.onTaskLoaded(TASKS)
 
-        tasksCallbackCaptor.firstValue.onTaskLoaded(TASKS)
+        // Then
+        verify(tasksLocalDataSource, never()).getTasks(any())
+        verify(loadTasksCallback).onTaskLoaded(TASKS)
+    }
 
-        tasksRepository.getTasks(callback)
+    @Test
+    fun getTasksWithLocalDataSourceUnavailable_tasksAreRetrievedFromRemote() {
+        // When
+        tasksRepository.getTasks(loadTasksCallback)
+
+        verify(tasksLocalDataSource).getTasks(tasksCallbackCaptor.capture())
+        tasksCallbackCaptor.lastValue.onDataNotAvailable()
+
+        verify(tasksRemoteDataSource).getTasks(tasksCallbackCaptor.capture())
+        tasksCallbackCaptor.lastValue.onTaskLoaded(TASKS)
+
+        // Then
+        verify(loadTasksCallback).onTaskLoaded(TASKS)
+    }
+
+    @Test
+    fun getTasksWithBothDataSourcesUnavailable_firesOnDataUnavailable() {
+        // When
+        tasksRepository.getTasks(loadTasksCallback)
+
+        verify(tasksLocalDataSource).getTasks(tasksCallbackCaptor.capture())
+        tasksCallbackCaptor.lastValue.onDataNotAvailable()
+
+        verify(tasksRemoteDataSource).getTasks(tasksCallbackCaptor.capture())
+        tasksCallbackCaptor.lastValue.onDataNotAvailable()
+
+        // Then
+        verify(loadTasksCallback).onDataNotAvailable()
+    }
+
+    @Test
+    fun getTaskWithBothDataSourcesUnavailable_firesOnDataUnavailable() {
+        // When
+        tasksRepository.getTask(TASK_TITLE, getTasksCallback)
+
+        verify(tasksLocalDataSource).getTask(eq(TASK_TITLE), taskCallbackCaptor.capture())
+        taskCallbackCaptor.lastValue.onDataNotAvailable()
+
+        verify(tasksRemoteDataSource).getTask(eq(TASK_TITLE), taskCallbackCaptor.capture())
+        taskCallbackCaptor.lastValue.onDataNotAvailable()
+
+        // Then
+        verify(getTasksCallback).onDataNotAvailable()
+    }
+
+    @Test
+    fun getTasks_refreshesLocalDataSource() {
+        // Given
+        tasksRepository.refreshTask()
+
+        // When
+        tasksRepository.getTasks(loadTasksCallback)
+
+        verify(tasksRemoteDataSource).getTasks(tasksCallbackCaptor.capture())
+        tasksCallbackCaptor.lastValue.onTaskLoaded(TASKS)
+
+        // Then
+        verify(tasksLocalDataSource, times(TASKS.size)).saveTask(any())
     }
 
     companion object {
 
-        private const val TASK_TITLE1 = "title1"
+        private const val TASK_TITLE = "title1"
         private const val TASK_TITLE2 = "title2"
         private const val TASK_TITLE3 = "title3"
 

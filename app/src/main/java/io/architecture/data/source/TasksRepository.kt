@@ -99,8 +99,8 @@ class TasksRepository private constructor(
     }
 
     override fun completeTask(task: Task) {
-        localDataSource.saveTask(task)
-        remoteDataSource.saveTask(task)
+        localDataSource.completeTask(task)
+        remoteDataSource.completeTask(task)
         cachedTasks[task.id] = task.copy(isCompleted = true)
     }
 

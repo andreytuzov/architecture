@@ -26,6 +26,9 @@ data class Task(
         get() = if (title.isEmpty()) description
         else title
 
+    val isActive: Boolean
+        get() = !isCompleted
+
     companion object {
 
         fun create(
